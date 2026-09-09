@@ -1,0 +1,6 @@
+{
+  "name": "SAT-SA — SOC Supervisory Analytics",
+  "description": "Supervisory analytics platform for periodic SOC operational assessment, workflow reconstruction, execution-gap detection, and evidence-based human review.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
