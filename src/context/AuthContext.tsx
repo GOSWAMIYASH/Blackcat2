@@ -14,8 +14,7 @@ interface AuthContextType {
 const PRESET_ACCOUNTS: { email: string; pass: string; name: string; role: UserRole }[] = [
   { email: 'examiner@satsa.gov.in', pass: 'examiner123', name: 'Dr. Arunima Sen', role: 'Lead Examiner' },
   { email: 'supervisor@soc.internal', pass: 'supervisor123', name: 'Rajeev Menon', role: 'SOC Supervisor' },
-  { email: 'auditor@cert.gov.in', pass: 'auditor123', name: 'Sunita Rao', role: 'Auditor' },
-  { email: 'reviewer@agency.gov', pass: 'reviewer123', name: 'Kabir Das', role: 'Read-Only Reviewer' }
+  { email: 'auditor@cert.gov.in', pass: 'auditor123', name: 'Sunita Rao', role: 'Auditor' }
 ];
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

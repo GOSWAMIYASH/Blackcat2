@@ -71,13 +71,4 @@ export const PRESET_USERS: User[] = [
     organization: 'CERT-In Supervisory Review Group',
     createdAt: '2026-02-01T11:15:00Z'
   },
-  {
-    id: 'USR-004',
-    email: 'reviewer@agency.gov',
-    name: 'Kabir Das',
-    role: 'Read-Only Reviewer',
-    passwordHash: hashPassword('reviewer123'),
-    organization: 'Independent Compliance Oversight',
-    createdAt: '2026-02-10T14:00:00Z'
-  }
 ];

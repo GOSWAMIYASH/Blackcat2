@@ -10,7 +10,7 @@ export type FindingCategory =
   | 'Invalid Transition';
 
 export type ReviewStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'NEEDS_EVIDENCE';
-export type UserRole = 'Lead Examiner' | 'SOC Supervisor' | 'Auditor' | 'Read-Only Reviewer';
+export type UserRole = 'Lead Examiner' | 'SOC Supervisor' | 'Auditor';
 
 export interface User {
   id: string;
