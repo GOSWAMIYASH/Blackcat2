@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
 import { verifyPassword, signToken, verifyToken, PRESET_USERS } from './auth';
+import { prisma } from './prisma';
+import argon2 from 'argon2';
 import { validateAndNormalizeSOCData } from './engine/normalizer';
 import { generateAssessmentDossier } from './engine/reporting';
 import { SCENARIO_DEFINITIONS } from './engine/scenarios';
@@ -18,14 +20,19 @@ function getAuthUser(req: Request) {
 // ----------------------------------------------------
 // AUTHENTICATION & USERS
 // ----------------------------------------------------
-apiRouter.post('/auth/login', (req: Request, res: Response) => {
+const roleLabel = (role: string) => role.split('_').map(word => word[0] + word.slice(1).toLowerCase()).join(' ');
+
+apiRouter.post('/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = db.users.find(u => u.email.toLowerCase() === String(email).toLowerCase().trim());
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+  const user = await prisma.user.findUnique({
+    where: { email: String(email).toLowerCase().trim() },
+    include: { organization: true }
+  });
+  if (!user || !user.isActive || !(await argon2.verify(user.passwordHash, password))) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
@@ -33,13 +40,13 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     userId: user.id,
     email: user.email,
     name: user.name,
-    role: user.role
+    role: roleLabel(user.role) as any
   });
 
   db.addAuditLog({
     actorEmail: user.email,
     actorName: user.name,
-    actorRole: user.role,
+    actorRole: roleLabel(user.role) as any,
     action: 'LOGIN',
     targetType: 'AUTH',
     targetId: user.id,
@@ -53,49 +60,40 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
       email: user.email,
       name: user.name,
       role: user.role,
-      organization: user.organization
+    organization: user.organization.name
     }
   });
 });
 
-apiRouter.get('/auth/me', (req: Request, res: Response) => {
+apiRouter.get('/auth/me', async (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
   if (!authUser) {
-    // Provide default fallback user if not authenticated for seamless demo inspection
-    const defaultUser = PRESET_USERS[0];
-    return res.json({
-      authenticated: false,
-      user: {
-        id: defaultUser.id,
-        email: defaultUser.email,
-        name: defaultUser.name,
-        role: defaultUser.role,
-        organization: defaultUser.organization
-      }
-    });
+    return res.status(401).json({ error: 'Authentication is required' });
   }
 
-  const user = db.users.find(u => u.id === authUser.userId) || PRESET_USERS[0];
+  const user = await prisma.user.findUnique({ where: { id: authUser.userId }, include: { organization: true } });
+  if (!user || !user.isActive) return res.status(401).json({ error: 'Session is no longer valid' });
   res.json({
     authenticated: true,
     user: {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
-      organization: user.organization
+      role: roleLabel(user.role),
+      organization: user.organization.name
     }
   });
 });
 
-apiRouter.get('/auth/users', (req: Request, res: Response) => {
+apiRouter.get('/auth/users', async (_req: Request, res: Response) => {
+  const users = await prisma.user.findMany({ include: { organization: true } });
   res.json({
-    users: db.users.map(u => ({
+    users: users.map(u => ({
       id: u.id,
       email: u.email,
       name: u.name,
-      role: u.role,
-      organization: u.organization
+      role: roleLabel(u.role),
+      organization: u.organization.name
     }))
   });
 });
