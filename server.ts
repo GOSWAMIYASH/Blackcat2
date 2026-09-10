@@ -2,8 +2,10 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { apiRouter } from './server/routes';
+import { db } from './server/db';
 
 async function startServer() {
+  await db.initialize();
   const app = express();
   const PORT = 3000;
 

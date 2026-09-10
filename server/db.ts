@@ -37,6 +37,28 @@ class DatabaseStore {
     this.loadScenario(this.activeScenarioId, 'System Initialization');
   }
 
+  public async initialize(): Promise<void> {
+    try {
+      const snapshot = await prisma.scenarioSnapshot.findFirst({
+        orderBy: { updatedAt: 'desc' }
+      });
+      if (!snapshot) return;
+
+      const data = snapshot.payload as any;
+      this.activeScenarioId = snapshot.scenarioId;
+      this.entities = data.entities;
+      this.alerts = data.alerts;
+      this.cases = data.cases;
+      this.investigations = data.investigations;
+      this.escalations = data.escalations;
+      this.closures = data.closures;
+      this.evidences = data.evidences;
+      this.recomputeAnalytics();
+    } catch (error) {
+      console.warn('Operational snapshot unavailable; using generated scenario:', error);
+    }
+  }
+
   public loadScenario(scenarioId: string, actor: string = 'System'): void {
     const data = generateScenarioData(scenarioId);
     this.activeScenarioId = scenarioId;
@@ -49,6 +71,14 @@ class DatabaseStore {
     this.evidences = data.evidences;
 
     this.recomputeAnalytics();
+
+    void prisma.scenarioSnapshot.upsert({
+      where: { scenarioId },
+      update: { payload: data as any },
+      create: { scenarioId, payload: data as any }
+    }).catch(error => {
+      console.warn('Operational snapshot persistence unavailable:', error);
+    });
 
     this.addAuditLog({
       actorEmail: actor === 'System' ? 'system@satsa.internal' : actor,
