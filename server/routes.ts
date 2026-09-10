@@ -14,6 +14,7 @@ import { validateAndNormalizeSOCData } from './engine/normalizer';
 import { generateAssessmentDossier } from './engine/reporting';
 import { SCENARIO_DEFINITIONS } from './engine/scenarios';
 import { calculateStatistics } from './engine/statistics';
+import { Entity, SupervisoryFinding } from './types';
 
 export const apiRouter = Router();
 
@@ -83,6 +84,33 @@ function getRoleScopedEntities(authUser: ReturnType<typeof getAuthUser>) {
   );
 
   return db.entities.filter(entity => visibleEntityIds.has(entity.id));
+}
+
+async function getPersistedFindings(authUser: ReturnType<typeof getAuthUser>) {
+  try {
+    const records = await prisma.findingRecord.findMany({ orderBy: { createdAt: 'desc' } });
+    const persisted = records.map(record => record.payload as any as SupervisoryFinding);
+    if (!persisted.length) return getRoleScopedFindings(authUser);
+    const visibleIds = new Set(getRoleScopedFindings(authUser).map(finding => finding.id));
+    return persisted.filter(finding => visibleIds.has(finding.id));
+  } catch (error) {
+    console.warn('Finding database read unavailable; using memory fallback:', error);
+    return getRoleScopedFindings(authUser);
+  }
+}
+
+async function getPersistedEntities(authUser: ReturnType<typeof getAuthUser>) {
+  try {
+    const records = await prisma.operationalEntity.findMany({ orderBy: { name: 'asc' } });
+    if (!records.length) return getRoleScopedEntities(authUser);
+    const visibleIds = new Set(getRoleScopedEntities(authUser).map(entity => entity.id));
+    return records
+      .filter(record => visibleIds.has(record.id))
+      .map(record => record.payload as any as Entity);
+  } catch (error) {
+    console.warn('Entity database read unavailable; using memory fallback:', error);
+    return getRoleScopedEntities(authUser);
+  }
 }
 
 // ----------------------------------------------------
@@ -376,9 +404,9 @@ apiRouter.get('/analytics/ml-anomalies', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // FINDINGS & DETAILS
 // ----------------------------------------------------
-apiRouter.get('/findings', (req: Request, res: Response) => {
+apiRouter.get('/findings', async (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
-  let list = getRoleScopedFindings(authUser);
+  let list = await getPersistedFindings(authUser);
 
   const { severity, priority, category, entity, status, search, sort } = req.query;
 
@@ -428,13 +456,13 @@ apiRouter.get('/findings', (req: Request, res: Response) => {
   });
 });
 
-apiRouter.get('/findings/:id', (req: Request, res: Response) => {
+apiRouter.get('/findings/:id', async (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
   if (!authUser) {
     return res.status(401).json({ error: 'Authentication required' });
   }
 
-  const finding = getRoleScopedFindings(authUser).find(f => f.id === req.params.id);
+  const finding = (await getPersistedFindings(authUser)).find(f => f.id === req.params.id);
   if (!finding) {
     return res.status(404).json({ error: `Finding ${req.params.id} not found` });
   }
@@ -558,9 +586,9 @@ apiRouter.patch('/clarifications/:id', async (req: Request, res: Response) => {
 // ----------------------------------------------------
 // ENTITIES
 // ----------------------------------------------------
-apiRouter.get('/entities', (req: Request, res: Response) => {
+apiRouter.get('/entities', async (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
-  res.json(getRoleScopedEntities(authUser));
+  res.json(await getPersistedEntities(authUser));
 });
 
 // ----------------------------------------------------
