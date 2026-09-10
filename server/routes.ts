@@ -176,8 +176,8 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
-    organization: user.organization.name
+      role: roleLabel(user.role),
+      organization: user.organization.name
     }
   });
 });
