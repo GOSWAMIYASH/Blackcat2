@@ -124,7 +124,7 @@ export const Navbar: React.FC<Props> = ({
 
       {/* Right Controls: Ingest, Report, User Role Switcher */}
       <div className="flex items-center gap-3">
-        {canAccess(user?.role, 'ingest_evidence') && (
+        {canAccess(user?.role, 'upload_evidence') && (
           <button
             onClick={onOpenUpload}
             className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"

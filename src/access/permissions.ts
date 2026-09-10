@@ -11,7 +11,6 @@ export type Permission =
   | 'view_audit_logs'
   | 'generate_report'
   | 'view_reports_readonly'
-  | 'ingest_evidence'
   | 'review_decision'
   | 'request_evidence'
   | 'submit_clarification'
@@ -34,7 +33,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'view_reports',
     'view_audit_logs',
     'generate_report',
-    'ingest_evidence',
+    'upload_evidence',
     'review_decision',
     'request_evidence',
     'view_peer_comparison',
