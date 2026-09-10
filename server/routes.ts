@@ -10,7 +10,6 @@ import {
 } from './auth';
 import { createRefreshSession, getRefreshTokenFromRequest, setRefreshCookie, clearRefreshCookie, rotateRefreshSession, revokeRefreshSession, roleLabel } from './auth';
 import { prisma } from './prisma';
-import argon2 from 'argon2';
 import { validateAndNormalizeSOCData } from './engine/normalizer';
 import { generateAssessmentDossier } from './engine/reporting';
 import { SCENARIO_DEFINITIONS } from './engine/scenarios';
@@ -120,7 +119,7 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
     where: { email: String(email).toLowerCase().trim() },
     include: { organization: true }
   });
-  if (!user || !user.isActive || !(await argon2.verify(user.passwordHash, password))) {
+  if (!user || !user.isActive || !verifyPassword(password, user.passwordHash)) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 

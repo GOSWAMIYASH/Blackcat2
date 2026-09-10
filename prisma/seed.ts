@@ -1,7 +1,7 @@
 import 'dotenv/config';
-import argon2 from 'argon2';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient, UserRole } from '../generated/prisma/client';
+import { hashPassword } from '../server/auth';
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) throw new Error('DATABASE_URL is required.');
@@ -24,7 +24,7 @@ async function main() {
     await prisma.user.upsert({
       where: { email: user.email },
       update: { name: user.name, role: user.role, organizationId: organization.id, isActive: true },
-      create: { email: user.email, name: user.name, role: user.role, organizationId: organization.id, passwordHash: await argon2.hash(user.password, { type: argon2.argon2id }) }
+      create: { email: user.email, name: user.name, role: user.role, organizationId: organization.id, passwordHash: hashPassword(user.password) }
     });
   }
 }
