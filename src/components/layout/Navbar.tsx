@@ -27,6 +27,8 @@ export const Navbar: React.FC<Props> = ({
   onOpenReport
 }) => {
   const { user, switchUser, presetUsers } = useAuth();
+  const canChangeScenario = user?.role === 'Lead Examiner';
+  const canIngestEvidence = user?.role === 'SOC Supervisor';
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scenarioMenuOpen, setScenarioMenuOpen] = useState(false);
 
@@ -55,7 +57,7 @@ export const Navbar: React.FC<Props> = ({
       </div>
 
       {/* Center: Scenario Quick Switcher */}
-      <div className="relative">
+      <div className={`relative ${canChangeScenario ? '' : 'invisible'}`}>
         <button
           onClick={() => setScenarioMenuOpen(!scenarioMenuOpen)}
           className="flex items-center gap-2 rounded-lg border border-red-900/40 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-200 hover:border-red-750 hover:bg-zinc-800/90 transition-colors shadow-sm"
@@ -101,13 +103,13 @@ export const Navbar: React.FC<Props> = ({
 
       {/* Right Controls: Ingest, Report, User Role Switcher */}
       <div className="flex items-center gap-3">
-        <button
+        {canIngestEvidence && <button
           onClick={onOpenUpload}
           className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"
         >
           <UploadCloud className="w-3.5 h-3.5 text-zinc-400" />
           <span>Ingest Evidence</span>
-        </button>
+        </button>}
 
         <button
           onClick={onOpenReport}

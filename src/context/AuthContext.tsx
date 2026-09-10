@@ -6,7 +6,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   switchUser: (role: UserRole) => Promise<void>;
   presetUsers: { email: string; name: string; role: UserRole }[];
 }
@@ -44,9 +44,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(res.user);
   };
 
-  const logout = () => {
-    api.setToken(null);
-    // Default to read-only or unauthenticated
+  const logout = async () => {
+    await api.logout();
     setUser(null);
   };
 
