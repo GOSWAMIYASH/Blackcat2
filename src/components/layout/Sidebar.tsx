@@ -1,4 +1,6 @@
 import React from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { canAccess, NAV_PERMISSION_MAP } from '../../access/permissions';
 import {
   LayoutDashboard,
   Building2,
@@ -34,6 +36,8 @@ export const Sidebar: React.FC<Props> = ({
   pendingReviewCount,
   totalFindingsCount
 }) => {
+  const { user } = useAuth();
+
   const navItems = [
     { id: 'dashboard' as NavTab, label: 'Supervisory Dashboard', icon: LayoutDashboard },
     { id: 'negative-space' as NavTab, label: 'Negative Space Matrix', icon: Grid, badge: 'Signature' },
@@ -43,7 +47,10 @@ export const Sidebar: React.FC<Props> = ({
     { id: 'entities' as NavTab, label: 'Critical Entities', icon: Building2 },
     { id: 'reports' as NavTab, label: 'Assessment Dossier', icon: FileCheck2 },
     { id: 'audit-logs' as NavTab, label: 'Supervisory Audit Trail', icon: History }
-  ];
+  ].filter(item => {
+    const permission = NAV_PERMISSION_MAP[item.id];
+    return !permission || canAccess(user?.role, permission);
+  });
 
   return (
     <aside className="w-64 border-r border-zinc-800 bg-zinc-950 flex flex-col justify-between py-4 px-3 flex-shrink-0">

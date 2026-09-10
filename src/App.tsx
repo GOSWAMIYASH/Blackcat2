@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, NavTab } from './components/layout/Sidebar';
@@ -25,6 +25,7 @@ import {
 } from './types';
 
 export const AppContent: React.FC = () => {
+  const { user, loading: authLoading, login } = useAuth();
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [activeScenarioId, setActiveScenarioId] = useState<string>('scenario-2');
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
@@ -46,6 +47,43 @@ export const AppContent: React.FC = () => {
   const [findingEntityFilter, setFindingEntityFilter] = useState<string>('ALL');
 
   const [loading, setLoading] = useState<boolean>(true);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginFieldsEnabled, setLoginFieldsEnabled] = useState(false);
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const [loginFieldNames] = useState(() => ({
+    email: `access-${Math.random().toString(36).slice(2)}`,
+    password: `secret-${Math.random().toString(36).slice(2)}`
+  }));
+
+  useEffect(() => {
+    const clearAutofill = () => {
+      if (emailInputRef.current?.value) emailInputRef.current.value = '';
+      if (passwordInputRef.current?.value) passwordInputRef.current.value = '';
+      setLoginEmail('');
+      setLoginPassword('');
+    };
+
+    const timer = window.setTimeout(clearAutofill, 250);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const handleLogin = async (e?: React.FormEvent | React.MouseEvent) => {
+    e?.preventDefault();
+    try {
+      setLoginError('');
+      await login(loginEmail, loginPassword);
+    } catch (err: any) {
+      setLoginError(err.message || 'Login failed');
+    }
+  };
+
+  const clearAutofilledInput = (input: HTMLInputElement, clear: (value: string) => void) => {
+    input.value = '';
+    clear('');
+  };
 
   // Load all central state from API
   const refreshData = useCallback(async () => {
@@ -93,8 +131,10 @@ export const AppContent: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    if (user) {
+      refreshData();
+    }
+  }, [user, refreshData]);
 
   // Scenario switch
   const handleSelectScenario = async (scenarioId: string) => {
@@ -152,12 +192,98 @@ export const AppContent: React.FC = () => {
     }
   };
 
-  if (loading && !kpi) {
+  if (authLoading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-zinc-950 text-zinc-300 font-mono text-xs">
         <div className="flex flex-col items-center gap-3">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
           <span>Booting SAT-SA Supervisory Engine (SIH26157)...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 text-zinc-100">
+        <div className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-2xl">
+          <div className="mb-6 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg border border-red-800 bg-red-950 text-red-400">
+              <span className="font-bold">SAT-SA</span>
+            </div>
+            <h1 className="text-xl font-bold tracking-wider text-zinc-100">Secure Access</h1>
+            <p className="mt-1 text-xs text-zinc-400">SIH26157 Supervisory Analytics</p>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-wider text-zinc-400">Account ID</label>
+              <input
+                ref={emailInputRef}
+                type="text"
+                autoComplete="nope"
+                name={loginFieldNames.email}
+                readOnly={!loginFieldsEnabled}
+                onFocus={() => setLoginFieldsEnabled(true)}
+                onAnimationStart={e => {
+                  if (e.animationName === 'autofill-detected') {
+                    clearAutofilledInput(e.currentTarget, setLoginEmail);
+                  }
+                }}
+                value={loginEmail}
+                onChange={e => setLoginEmail(e.target.value)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-red-600"
+                placeholder="abc@etc.co.in"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[11px] uppercase tracking-wider text-zinc-400">Access Key</label>
+              <input
+                ref={passwordInputRef}
+                type="text"
+                autoComplete="nope"
+                name={loginFieldNames.password}
+                readOnly={!loginFieldsEnabled}
+                onFocus={() => setLoginFieldsEnabled(true)}
+                onAnimationStart={e => {
+                  if (e.animationName === 'autofill-detected') {
+                    clearAutofilledInput(e.currentTarget, setLoginPassword);
+                  }
+                }}
+                value={loginPassword}
+                onChange={e => setLoginPassword(e.target.value)}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-red-600"
+                style={{ WebkitTextSecurity: 'disc' } as React.CSSProperties}
+                placeholder="Enter access key"
+              />
+            </div>
+
+            {loginError && (
+              <div className="rounded-lg border border-red-800 bg-red-950/40 px-3 py-2 text-xs text-red-200">
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleLogin}
+              className="w-full rounded-lg bg-red-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700"
+            >
+              Sign In
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading && !kpi) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-zinc-950 text-zinc-300 font-mono text-xs">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-red-500 border-t-transparent" />
+          <span>Loading supervisory data...</span>
         </div>
       </div>
     );
@@ -187,6 +313,7 @@ export const AppContent: React.FC = () => {
         <main className="flex-1 overflow-y-auto p-6 bg-zinc-900/40">
           {activeTab === 'dashboard' && kpi && (
             <DashboardView
+              role={user.role}
               kpi={kpi}
               severityData={severityData}
               categoryData={categoryData}

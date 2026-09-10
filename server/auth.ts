@@ -19,6 +19,44 @@ export interface JWTPayload {
   exp: number;
 }
 
+export type ServerPermission =
+  | 'review_decision'
+  | 'submit_clarification'
+  | 'upload_evidence'
+  | 'generate_report'
+  | 'view_reports'
+  | 'access_audit_logs'
+  | 'load_scenario'
+  | 'access_analytics';
+
+export const ROLE_PERMISSIONS: Record<UserRole, ServerPermission[]> = {
+  'Lead Examiner': [
+    'review_decision',
+    'upload_evidence',
+    'generate_report',
+    'view_reports',
+    'access_audit_logs',
+    'load_scenario',
+    'access_analytics'
+  ],
+  'SOC Supervisor': [
+    'submit_clarification',
+    'upload_evidence',
+    'access_audit_logs',
+    'access_analytics'
+  ],
+  Auditor: [
+    'access_audit_logs',
+    'access_analytics',
+    'view_reports'
+  ]
+};
+
+export function canUserAccess(role: UserRole | undefined, permission: ServerPermission): boolean {
+  if (!role) return false;
+  return (ROLE_PERMISSIONS[role] ?? []).includes(permission);
+}
+
 export function signToken(payload: Omit<JWTPayload, 'exp'>, expiresInHours: number = 24): string {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const exp = Math.floor(Date.now() / 1000) + expiresInHours * 3600;

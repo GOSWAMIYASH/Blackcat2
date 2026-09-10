@@ -226,6 +226,7 @@ export interface AuditEvent {
     | 'LOGOUT'
     | 'FINDING_VIEWED'
     | 'FINDING_REVIEWED'
+    | 'CLARIFICATION_SUBMITTED'
     | 'REPORT_GENERATED'
     | 'DATA_UPLOAD'
     | 'ANALYTICS_EXECUTED'

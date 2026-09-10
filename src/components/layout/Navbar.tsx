@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { canAccess } from '../../access/permissions';
 import {
   ShieldCheck,
   UploadCloud,
@@ -26,11 +27,33 @@ export const Navbar: React.FC<Props> = ({
   onOpenUpload,
   onOpenReport
 }) => {
-  const { user, switchUser, presetUsers } = useAuth();
+  const { user, switchUser, presetUsers, logout } = useAuth();
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scenarioMenuOpen, setScenarioMenuOpen] = useState(false);
+  const [pendingRole, setPendingRole] = useState<{ role: UserRole; name: string } | null>(null);
+  const [rolePassword, setRolePassword] = useState('');
+  const [roleSwitchError, setRoleSwitchError] = useState('');
 
   const activeScenario = scenarios.find(s => s.id === activeScenarioId) || scenarios[0];
+
+  const handleRoleSwitchRequest = (role: UserRole, name: string) => {
+    setPendingRole({ role, name });
+    setRolePassword('');
+    setRoleSwitchError('');
+  };
+
+  const handleRoleSwitchConfirm = async () => {
+    if (!pendingRole) return;
+    try {
+      await switchUser(pendingRole.role, rolePassword);
+      setPendingRole(null);
+      setRolePassword('');
+      setRoleSwitchError('');
+      setRoleMenuOpen(false);
+    } catch (err: any) {
+      setRoleSwitchError(err.message || 'Incorrect password.');
+    }
+  };
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-zinc-800 bg-zinc-950/90 backdrop-blur px-6 py-3">
@@ -54,8 +77,8 @@ export const Navbar: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Center: Scenario Quick Switcher */}
-      <div className="relative">
+      {/* Center: Scenario Quick Switcher (Lead Examiner only) */}
+      {canAccess(user?.role, 'view_peer_comparison') && <div className="relative">
         <button
           onClick={() => setScenarioMenuOpen(!scenarioMenuOpen)}
           className="flex items-center gap-2 rounded-lg border border-red-900/40 bg-zinc-900/90 px-3 py-1.5 text-xs text-zinc-200 hover:border-red-750 hover:bg-zinc-800/90 transition-colors shadow-sm"
@@ -97,25 +120,29 @@ export const Navbar: React.FC<Props> = ({
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Right Controls: Ingest, Report, User Role Switcher */}
       <div className="flex items-center gap-3">
-        <button
-          onClick={onOpenUpload}
-          className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"
-        >
-          <UploadCloud className="w-3.5 h-3.5 text-zinc-400" />
-          <span>Ingest Evidence</span>
-        </button>
+        {canAccess(user?.role, 'ingest_evidence') && (
+          <button
+            onClick={onOpenUpload}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-zinc-400" />
+            <span>Ingest Evidence</span>
+          </button>
+        )}
 
-        <button
-          onClick={onOpenReport}
-          className="flex items-center gap-1.5 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-900/60 transition"
-        >
-          <FileText className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Dossier</span>
-        </button>
+        {canAccess(user?.role, 'generate_report') && (
+          <button
+            onClick={onOpenReport}
+            className="flex items-center gap-1.5 rounded-lg border border-emerald-800/60 bg-emerald-950/40 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-900/60 transition"
+          >
+            <FileText className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Dossier</span>
+          </button>
+        )}
 
         {/* User Role Switcher */}
         <div className="relative">
@@ -136,23 +163,70 @@ export const Navbar: React.FC<Props> = ({
               <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 px-2 py-1">
                 Simulate Role / Access Level
               </div>
-              {presetUsers.map(p => (
-                <button
-                  key={p.email}
-                  onClick={() => {
-                    switchUser(p.role);
-                    setRoleMenuOpen(false);
-                  }}
-                  className={`w-full text-left p-2 rounded-md text-xs transition-colors flex flex-col mb-1 ${
-                    user?.role === p.role
-                      ? 'bg-red-950/50 border border-red-800 text-red-200'
-                      : 'text-zinc-300 hover:bg-zinc-800'
-                  }`}
-                >
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-[10px] text-zinc-400">{p.role}</span>
-                </button>
-              ))}
+              {pendingRole ? (
+                <div className="space-y-2 rounded-md border border-red-900/50 bg-red-950/20 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-red-300 font-bold">
+                    Re-authenticate to switch to {pendingRole.name}
+                  </div>
+                  <input
+                    type="password"
+                    value={rolePassword}
+                    onChange={e => setRolePassword(e.target.value)}
+                    placeholder="Enter password"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 placeholder-zinc-500 focus:border-red-600 focus:outline-none"
+                  />
+                  {roleSwitchError && (
+                    <div className="text-[10px] text-red-300">{roleSwitchError}</div>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleRoleSwitchConfirm}
+                      className="flex-1 rounded-md bg-red-800 px-2 py-1.5 text-[10px] font-semibold text-white hover:bg-red-700"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPendingRole(null);
+                        setRolePassword('');
+                        setRoleSwitchError('');
+                      }}
+                      className="flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-[10px] text-zinc-200 hover:bg-zinc-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {presetUsers.map(p => (
+                    <button
+                      key={p.email}
+                      onClick={() => handleRoleSwitchRequest(p.role, p.name)}
+                      className={`w-full text-left p-2 rounded-md text-xs transition-colors flex flex-col mb-1 ${
+                        user?.role === p.role
+                          ? 'bg-red-950/50 border border-red-800 text-red-200'
+                          : 'text-zinc-300 hover:bg-zinc-800'
+                      }`}
+                    >
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-[10px] text-zinc-400">{p.role}</span>
+                    </button>
+                  ))}
+
+                  <div className="mt-2 border-t border-zinc-800 pt-2">
+                    <button
+                      onClick={() => {
+                        logout();
+                        setRoleMenuOpen(false);
+                      }}
+                      className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-left text-xs font-medium text-zinc-200 hover:bg-zinc-800"
+                    >
+                      Log out
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

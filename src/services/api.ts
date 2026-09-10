@@ -131,6 +131,13 @@ class ApiService {
     });
   }
 
+  public async submitClarification(id: string, message: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/findings/${encodeURIComponent(id)}/clarification`, {
+      method: 'POST',
+      body: JSON.stringify({ message })
+    });
+  }
+
   // Entities
   public async getEntities(): Promise<Entity[]> {
     return this.request('/entities');

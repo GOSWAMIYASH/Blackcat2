@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { canAccess } from '../../access/permissions';
 import { SupervisoryFinding, ReviewStatus } from '../../types';
 import { SeverityBadge } from '../common/SeverityBadge';
 import { CategoryBadge } from '../common/CategoryBadge';
 import { WorkflowDiagram } from '../common/WorkflowDiagram';
 import { useReviewDraft } from '../../hooks/useReviewDraft';
+import { api } from '../../services/api';
 import {
   X,
   ShieldCheck,
@@ -33,6 +36,10 @@ interface Props {
 }
 
 export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReviewSubmit }) => {
+  const { user } = useAuth();
+  const canReview = canAccess(user?.role, 'review_decision');
+  const canClarify = canAccess(user?.role, 'submit_clarification');
+  const canExportReport = canAccess(user?.role, 'generate_report') || canAccess(user?.role, 'view_reports_readonly');
   const initialDecision: ReviewStatus =
     finding.reviewStatus !== 'PENDING' ? finding.reviewStatus : 'CONFIRMED';
   const initialNotes = finding.reviewDecision?.notes || '';
@@ -53,6 +60,8 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [clarification, setClarification] = useState('');
+  const [clarificationStatus, setClarificationStatus] = useState('');
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
@@ -67,6 +76,17 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
       console.error('Review submit failed:', err);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleClarification = async () => {
+    if (!clarification.trim()) return;
+    try {
+      const response = await api.submitClarification(finding.id, clarification.trim());
+      setClarificationStatus(response.message);
+      setClarification('');
+    } catch (err: any) {
+      setClarificationStatus(err.message || 'Clarification submission failed.');
     }
   };
 
@@ -173,14 +193,14 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
           </div>
 
           <div className="flex items-center gap-2.5">
-            <button
+            {canExportReport && <button
               onClick={handleExportJSON}
               title="Generate JSON report with 10-section audit metadata for offline review"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-700 bg-zinc-900 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800 transition shadow-sm"
             >
               <Download className="w-3.5 h-3.5 text-zinc-400" />
               <span>Export JSON Report</span>
-            </button>
+            </button>}
             <SeverityBadge severity={finding.severity} />
             <CategoryBadge category={finding.category} />
             <button
@@ -446,47 +466,79 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
               </div>
             )}
 
-            {/* Decision Radio Buttons */}
-            <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                onClick={() => setDecision('CONFIRMED')}
-                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition ${
-                  decision === 'CONFIRMED'
-                    ? 'bg-red-950 border-red-600 text-red-200 ring-2 ring-red-500/40'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4 text-red-400" />
-                <span>Confirm Gap</span>
-              </button>
+            {!canReview ? (
+              <div className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-xs text-amber-200">
+                You do not have permission to submit a finding decision for this role.
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDecision('CONFIRMED')}
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                    decision === 'CONFIRMED'
+                      ? 'bg-red-950 border-red-600 text-red-200 ring-2 ring-red-500/40'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  <CheckCircle2 className="w-4 h-4 text-red-400" />
+                  <span>Confirm Gap</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setDecision('REJECTED')}
-                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition ${
-                  decision === 'REJECTED'
-                    ? 'bg-zinc-800 border-zinc-600 text-zinc-100 ring-2 ring-zinc-500/40'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                }`}
-              >
-                <XCircle className="w-4 h-4 text-zinc-400" />
-                <span>Reject / Dismiss</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setDecision('REJECTED')}
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                    decision === 'REJECTED'
+                      ? 'bg-zinc-800 border-zinc-600 text-zinc-100 ring-2 ring-zinc-500/40'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  <XCircle className="w-4 h-4 text-zinc-400" />
+                  <span>Reject / Dismiss</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setDecision('NEEDS_EVIDENCE')}
-                className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition ${
-                  decision === 'NEEDS_EVIDENCE'
-                    ? 'bg-amber-950 border-amber-600 text-amber-200 ring-2 ring-amber-500/40'
-                    : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
-                }`}
-              >
-                <RotateCcw className="w-4 h-4 text-amber-400" />
-                <span>Request More Evidence</span>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setDecision('NEEDS_EVIDENCE')}
+                  className={`flex items-center justify-center gap-2 p-2.5 rounded-lg border text-xs font-semibold transition ${
+                    decision === 'NEEDS_EVIDENCE'
+                      ? 'bg-amber-950 border-amber-600 text-amber-200 ring-2 ring-amber-500/40'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                  }`}
+                >
+                  <RotateCcw className="w-4 h-4 text-amber-400" />
+                  <span>Request More Evidence</span>
+                </button>
+              </div>
+            )}
+
+            {canClarify && (
+              <div className="rounded-lg border border-sky-900/60 bg-sky-950/20 p-3 space-y-2">
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-sky-300">
+                  Supervisor clarification
+                </div>
+                <textarea
+                  value={clarification}
+                  onChange={e => setClarification(e.target.value)}
+                  placeholder="Explain the operational context or provide a response to the examiner request..."
+                  rows={3}
+                  className="w-full rounded-lg border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-200 placeholder-zinc-600 focus:border-sky-600 focus:outline-none"
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] text-zinc-500">Recorded in the supervisory audit trail.</span>
+                  <button
+                    type="button"
+                    onClick={handleClarification}
+                    disabled={!clarification.trim()}
+                    className="rounded-lg bg-sky-800 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                  >
+                    Submit clarification
+                  </button>
+                </div>
+                {clarificationStatus && <div className="text-[11px] text-sky-300">{clarificationStatus}</div>}
+              </div>
+            )}
 
             {/* Notes Input */}
             <div className="space-y-2">
@@ -547,14 +599,14 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
               )}
 
               <div className="flex items-center gap-2.5">
-                <button
+                {canExportReport && <button
                   type="button"
                   onClick={handleExportJSON}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-950 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition shadow-sm"
                 >
                   <Download className="w-3.5 h-3.5 text-zinc-400" />
                   <span>Export JSON Report</span>
-                </button>
+                </button>}
                 <button
                   type="button"
                   onClick={onClose}
@@ -564,11 +616,11 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
                 </button>
                 <button
                   type="button"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !canReview}
                   onClick={handleSubmit}
                   className="px-5 py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-xs transition shadow-md disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Recording...' : 'Commit Examiner Decision'}
+                  {isSubmitting ? 'Recording...' : canReview ? 'Commit Examiner Decision' : 'Read Only'}
                 </button>
               </div>
             </div>

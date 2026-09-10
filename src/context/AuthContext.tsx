@@ -7,7 +7,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, pass: string) => Promise<void>;
   logout: () => void;
-  switchUser: (role: UserRole) => Promise<void>;
+  switchUser: (role: UserRole, password?: string) => Promise<void>;
   presetUsers: { email: string; name: string; role: UserRole }[];
 }
 
@@ -27,11 +27,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async function initAuth() {
       try {
         const res = await api.getMe();
-        if (res.user) {
+        if (res.authenticated && res.user) {
           setUser(res.user);
+        } else {
+          setUser(null);
         }
       } catch (err) {
         console.warn('Auth init note:', err);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -50,8 +53,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const switchUser = async (role: UserRole) => {
+  const switchUser = async (role: UserRole, password?: string) => {
     const target = PRESET_ACCOUNTS.find(p => p.role === role) || PRESET_ACCOUNTS[0];
+    if (password !== undefined && password !== target.pass) {
+      throw new Error('Incorrect password for selected role.');
+    }
     await login(target.email, target.pass);
   };
 

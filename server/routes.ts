@@ -1,9 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
-import { verifyPassword, signToken, verifyToken, PRESET_USERS } from './auth';
+import {
+  verifyPassword,
+  signToken,
+  verifyToken,
+  PRESET_USERS,
+  canUserAccess,
+  ServerPermission
+} from './auth';
 import { validateAndNormalizeSOCData } from './engine/normalizer';
 import { generateAssessmentDossier } from './engine/reporting';
 import { SCENARIO_DEFINITIONS } from './engine/scenarios';
+import { calculateStatistics } from './engine/statistics';
 
 export const apiRouter = Router();
 
@@ -13,6 +21,66 @@ function getAuthUser(req: Request) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const token = authHeader.substring(7);
   return verifyToken(token);
+}
+
+function requirePermission(req: Request, res: Response, permission: ServerPermission) {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    res.status(401).json({ error: 'Authentication required' });
+    return false;
+  }
+
+  if (!canUserAccess(authUser.role, permission)) {
+    res.status(403).json({ error: 'You do not have permission to perform this action.' });
+    return false;
+  }
+
+  return true;
+}
+
+function getRoleScopedCases(authUser: ReturnType<typeof getAuthUser>) {
+  if (!authUser || authUser.role === 'Lead Examiner' || authUser.role === 'Auditor') {
+    return [...db.cases];
+  }
+
+  const userName = authUser.name.toLowerCase();
+  const supervisorCaseIds = new Set(
+    db.closures
+      .filter(closure => closure.closedBy.toLowerCase().includes(userName))
+      .map(closure => closure.caseId)
+  );
+  return db.cases.filter(caseItem => {
+    const assigned = (caseItem.assignedAnalyst || '').toLowerCase();
+    const closedBy = (caseItem.closureReason || '').toLowerCase();
+    return supervisorCaseIds.has(caseItem.id) || assigned.includes(userName) || closedBy.includes(userName);
+  });
+}
+
+function getRoleScopedFindings(authUser: ReturnType<typeof getAuthUser>) {
+  if (!authUser) return [...db.findings];
+
+  if (authUser.role === 'Lead Examiner' || authUser.role === 'Auditor') {
+    return [...db.findings];
+  }
+
+  const ownedCaseIds = new Set(getRoleScopedCases(authUser).map(caseItem => caseItem.id));
+  return db.findings.filter(finding => ownedCaseIds.has(finding.caseId));
+}
+
+function getRoleScopedEntities(authUser: ReturnType<typeof getAuthUser>) {
+  if (!authUser) return [...db.entities];
+  if (authUser.role === 'Lead Examiner' || authUser.role === 'Auditor') {
+    return [...db.entities];
+  }
+
+  const visibleCaseIds = new Set(getRoleScopedFindings(authUser).map(f => f.caseId));
+  const visibleEntityIds = new Set(
+    db.cases
+      .filter(caseItem => visibleCaseIds.has(caseItem.id))
+      .map(caseItem => caseItem.entityId)
+  );
+
+  return db.entities.filter(entity => visibleEntityIds.has(entity.id));
 }
 
 // ----------------------------------------------------
@@ -61,17 +129,9 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
 apiRouter.get('/auth/me', (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
   if (!authUser) {
-    // Provide default fallback user if not authenticated for seamless demo inspection
-    const defaultUser = PRESET_USERS[0];
     return res.json({
       authenticated: false,
-      user: {
-        id: defaultUser.id,
-        email: defaultUser.email,
-        name: defaultUser.name,
-        role: defaultUser.role,
-        organization: defaultUser.organization
-      }
+      user: null
     });
   }
 
@@ -89,6 +149,11 @@ apiRouter.get('/auth/me', (req: Request, res: Response) => {
 });
 
 apiRouter.get('/auth/users', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
   res.json({
     users: db.users.map(u => ({
       id: u.id,
@@ -100,14 +165,47 @@ apiRouter.get('/auth/users', (req: Request, res: Response) => {
   });
 });
 
+// Every application data endpoint below requires an authenticated session.
+apiRouter.use((req: Request, res: Response, next) => {
+  if (!getAuthUser(req)) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  next();
+});
+
 // ----------------------------------------------------
 // ANALYTICS & KPIS
 // ----------------------------------------------------
 apiRouter.get('/analytics/summary', (req: Request, res: Response) => {
-  res.json(db.getKPISummary());
+  const authUser = getAuthUser(req);
+  const visibleCases = getRoleScopedCases(authUser);
+  const visibleFindings = getRoleScopedFindings(authUser);
+  const visibleCaseIds = new Set(visibleCases.map(caseItem => caseItem.id));
+  const visibleAlertIds = new Set(visibleCases.map(caseItem => caseItem.alertId));
+  const visibleInvestigations = db.investigations.filter(investigation => visibleCaseIds.has(investigation.caseId));
+  const breachedCases = visibleCases.filter(caseItem => caseItem.slaBreached).length;
+
+  const summary = db.getKPISummary();
+  const filteredSummary = {
+    ...summary,
+    totalAlerts: db.alerts.filter(alert => visibleAlertIds.has(alert.id)).length,
+    totalInvestigations: visibleInvestigations.length,
+    totalFindings: visibleFindings.length,
+    highFindings: visibleFindings.filter(f => f.severity === 'HIGH').length,
+    criticalFindings: visibleFindings.filter(f => f.severity === 'CRITICAL').length,
+    reviewedFindingsCount: visibleFindings.filter(f => f.reviewStatus !== 'PENDING').length,
+    pendingReviewCount: visibleFindings.filter(f => f.reviewStatus === 'PENDING').length,
+    totalCases: visibleCases.length,
+    slaBreachRate: visibleCases.length ? Math.round((breachedCases / visibleCases.length) * 100) : 0,
+    totalEntities: getRoleScopedEntities(authUser).length
+  };
+
+  res.json(filteredSummary);
 });
 
 apiRouter.get('/analytics/findings-by-severity', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  const visibleFindings = getRoleScopedFindings(authUser);
   const counts: Record<string, number> = {
     CRITICAL: 0,
     HIGH: 0,
@@ -115,7 +213,7 @@ apiRouter.get('/analytics/findings-by-severity', (req: Request, res: Response) =
     LOW: 0
   };
 
-  for (const f of db.findings) {
+  for (const f of visibleFindings) {
     counts[f.severity] = (counts[f.severity] || 0) + 1;
   }
 
@@ -130,8 +228,10 @@ apiRouter.get('/analytics/findings-by-severity', (req: Request, res: Response) =
 });
 
 apiRouter.get('/analytics/findings-by-category', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  const visibleFindings = getRoleScopedFindings(authUser);
   const counts: Record<string, number> = {};
-  for (const f of db.findings) {
+  for (const f of visibleFindings) {
     counts[f.category] = (counts[f.category] || 0) + 1;
   }
 
@@ -144,26 +244,78 @@ apiRouter.get('/analytics/findings-by-category', (req: Request, res: Response) =
 });
 
 apiRouter.get('/analytics/workflow-completion', (req: Request, res: Response) => {
-  const stats = db.getStatistics();
+  const authUser = getAuthUser(req);
+  if (authUser && authUser.role === 'Auditor') {
+    return res.json([]);
+  }
+  const visibleCases = getRoleScopedCases(authUser);
+  const visibleCaseIds = new Set(visibleCases.map(caseItem => caseItem.id));
+  const stats = authUser?.role === 'SOC Supervisor'
+    ? calculateStatistics(
+        visibleCases,
+        db.alerts.filter(alert => visibleCases.some(caseItem => caseItem.alertId === alert.id)),
+        db.investigations.filter(investigation => visibleCaseIds.has(investigation.caseId)),
+        db.escalations.filter(escalation => visibleCaseIds.has(escalation.caseId)),
+        db.closures.filter(closure => visibleCaseIds.has(closure.caseId)),
+        getRoleScopedFindings(authUser)
+      )
+    : db.getStatistics();
   res.json(stats.conversionFunnel);
 });
 
 apiRouter.get('/analytics/trends', (req: Request, res: Response) => {
-  const stats = db.getStatistics();
+  const authUser = getAuthUser(req);
+  if (authUser?.role !== 'SOC Supervisor') {
+    return res.json(db.getStatistics().trends);
+  }
+  const visibleCases = getRoleScopedCases(authUser);
+  const visibleCaseIds = new Set(visibleCases.map(caseItem => caseItem.id));
+  const stats = calculateStatistics(
+    visibleCases,
+    db.alerts.filter(alert => visibleCases.some(caseItem => caseItem.alertId === alert.id)),
+    db.investigations.filter(investigation => visibleCaseIds.has(investigation.caseId)),
+    db.escalations.filter(escalation => visibleCaseIds.has(escalation.caseId)),
+    db.closures.filter(closure => visibleCaseIds.has(closure.caseId)),
+    getRoleScopedFindings(authUser)
+  );
   res.json(stats.trends);
 });
 
 apiRouter.get('/analytics/entity-priority', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  const visibleEntities = getRoleScopedEntities(authUser);
+  const visibleEntityIds = new Set(visibleEntities.map(entity => entity.id));
   const stats = db.getStatistics();
-  res.json(stats.entityRankings);
+  res.json(stats.entityRankings.filter(entry => visibleEntityIds.has(entry.entityId)));
 });
 
 apiRouter.get('/analytics/negative-space-matrix', (req: Request, res: Response) => {
-  res.json(db.getNegativeSpaceMatrix());
+  const authUser = getAuthUser(req);
+  const visibleEntities = getRoleScopedEntities(authUser);
+  const visibleEntityIds = new Set(visibleEntities.map(entity => entity.id));
+  res.json(db.getNegativeSpaceMatrix().filter(row => visibleEntityIds.has(row.entityId)));
 });
 
 apiRouter.get('/analytics/full-statistics', (req: Request, res: Response) => {
-  res.json(db.getStatistics());
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  if (authUser.role !== 'SOC Supervisor') {
+    return res.json(db.getStatistics());
+  }
+
+  const visibleCases = getRoleScopedCases(authUser);
+  const visibleCaseIds = new Set(visibleCases.map(caseItem => caseItem.id));
+  res.json(calculateStatistics(
+    visibleCases,
+    db.alerts.filter(alert => visibleCases.some(caseItem => caseItem.alertId === alert.id)),
+    db.investigations.filter(investigation => visibleCaseIds.has(investigation.caseId)),
+    db.escalations.filter(escalation => visibleCaseIds.has(escalation.caseId)),
+    db.closures.filter(closure => visibleCaseIds.has(closure.caseId)),
+    getRoleScopedFindings(authUser)
+  ));
 });
 
 apiRouter.get('/analytics/ml-anomalies', (req: Request, res: Response) => {
@@ -183,7 +335,8 @@ apiRouter.get('/analytics/ml-anomalies', (req: Request, res: Response) => {
 // FINDINGS & DETAILS
 // ----------------------------------------------------
 apiRouter.get('/findings', (req: Request, res: Response) => {
-  let list = [...db.findings];
+  const authUser = getAuthUser(req);
+  let list = getRoleScopedFindings(authUser);
 
   const { severity, priority, category, entity, status, search, sort } = req.query;
 
@@ -234,17 +387,21 @@ apiRouter.get('/findings', (req: Request, res: Response) => {
 });
 
 apiRouter.get('/findings/:id', (req: Request, res: Response) => {
-  const finding = db.findings.find(f => f.id === req.params.id);
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  const finding = getRoleScopedFindings(authUser).find(f => f.id === req.params.id);
   if (!finding) {
     return res.status(404).json({ error: `Finding ${req.params.id} not found` });
   }
 
   // Audit view
-  const authUser = getAuthUser(req);
   db.addAuditLog({
-    actorEmail: authUser?.email || 'examiner@satsa.gov.in',
-    actorName: authUser?.name || 'Dr. Arunima Sen',
-    actorRole: authUser?.role || 'Lead Examiner',
+    actorEmail: authUser.email,
+    actorName: authUser.name,
+    actorRole: authUser.role,
     action: 'FINDING_VIEWED',
     targetType: 'FINDING',
     targetId: finding.id,
@@ -255,6 +412,8 @@ apiRouter.get('/findings/:id', (req: Request, res: Response) => {
 });
 
 apiRouter.post('/findings/:id/review', (req: Request, res: Response) => {
+  if (!requirePermission(req, res, 'review_decision')) return;
+
   const { decision, notes, recommendedFollowUp } = req.body || {};
   if (!decision || !['CONFIRMED', 'REJECTED', 'NEEDS_EVIDENCE'].includes(decision)) {
     return res.status(400).json({ error: 'Valid decision (CONFIRMED, REJECTED, NEEDS_EVIDENCE) is required' });
@@ -280,11 +439,39 @@ apiRouter.post('/findings/:id/review', (req: Request, res: Response) => {
   });
 });
 
+apiRouter.post('/findings/:id/clarification', (req: Request, res: Response) => {
+  if (!requirePermission(req, res, 'submit_clarification')) return;
+
+  const authUser = getAuthUser(req);
+  const finding = getRoleScopedFindings(authUser).find(item => item.id === req.params.id);
+  if (!finding) {
+    return res.status(404).json({ error: `Finding ${req.params.id} not found in your assigned scope` });
+  }
+
+  const message = String(req.body?.message || '').trim();
+  if (!message) {
+    return res.status(400).json({ error: 'Clarification message is required' });
+  }
+
+  db.addAuditLog({
+    actorEmail: authUser!.email,
+    actorName: authUser!.name,
+    actorRole: authUser!.role,
+    action: 'CLARIFICATION_SUBMITTED',
+    targetType: 'FINDING',
+    targetId: finding.id,
+    metadata: { caseNumber: finding.caseNumber, message }
+  });
+
+  res.json({ success: true, message: 'Clarification submitted to the examiner.' });
+});
+
 // ----------------------------------------------------
 // ENTITIES
 // ----------------------------------------------------
 apiRouter.get('/entities', (req: Request, res: Response) => {
-  res.json(db.entities);
+  const authUser = getAuthUser(req);
+  res.json(getRoleScopedEntities(authUser));
 });
 
 // ----------------------------------------------------
@@ -298,6 +485,8 @@ apiRouter.get('/scenarios', (req: Request, res: Response) => {
 });
 
 apiRouter.post('/scenarios/load', (req: Request, res: Response) => {
+  if (!requirePermission(req, res, 'load_scenario')) return;
+
   const { scenarioId } = req.body || {};
   if (!scenarioId) {
     return res.status(400).json({ error: 'scenarioId is required' });
@@ -318,6 +507,8 @@ apiRouter.post('/scenarios/load', (req: Request, res: Response) => {
 // DATA INGESTION (CSV / JSON)
 // ----------------------------------------------------
 apiRouter.post('/upload', (req: Request, res: Response) => {
+  if (!requirePermission(req, res, 'upload_evidence')) return;
+
   const { content, mimeType = 'text/csv' } = req.body || {};
   if (!content) {
     return res.status(400).json({ error: 'Uploaded content payload is required' });
@@ -346,10 +537,24 @@ apiRouter.post('/upload', (req: Request, res: Response) => {
 // AUDIT LOGS
 // ----------------------------------------------------
 apiRouter.get('/audit/logs', (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!canUserAccess(authUser.role, 'access_audit_logs')) {
+    return res.status(403).json({ error: 'You do not have permission to view audit logs.' });
+  }
+
   const limit = parseInt(req.query.limit as string) || 100;
+  let events = [...db.auditEvents];
+
+  if (authUser.role === 'SOC Supervisor') {
+    events = events.filter(event => event.actorEmail === authUser.email);
+  }
+
   res.json({
-    total: db.auditEvents.length,
-    events: db.auditEvents.slice(0, limit)
+    total: events.length,
+    events: events.slice(0, limit)
   });
 });
 
@@ -358,7 +563,14 @@ apiRouter.get('/audit/logs', (req: Request, res: Response) => {
 // ----------------------------------------------------
 apiRouter.get('/reports/assessment-dossier', (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
-  const examinerName = authUser ? `${authUser.name} (${authUser.role})` : 'Dr. Arunima Sen (Lead Examiner)';
+  if (!authUser) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  if (!canUserAccess(authUser.role, 'generate_report') && !canUserAccess(authUser.role, 'view_reports')) {
+    return res.status(403).json({ error: 'You do not have permission to access assessment reports.' });
+  }
+
+  const examinerName = `${authUser.name} (${authUser.role})`;
   const dossier = generateAssessmentDossier(examinerName);
 
   db.addAuditLog({
