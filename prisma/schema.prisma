@@ -140,6 +140,23 @@ model OperationalEvidence {
   @@index([caseId])
 }
 
+model FindingRecord {
+  id             String   @id
+  organizationId String
+  caseId         String
+  entityId       String
+  severity       OperationalSeverity
+  reviewStatus   String
+  payload        Json
+  reviewDecision Json?
+  createdAt      DateTime
+  updatedAt      DateTime @updatedAt
+
+  @@index([organizationId, reviewStatus])
+  @@index([caseId])
+  @@index([entityId, severity])
+}
+
 model User {
   id           String        @id @default(cuid())
   organizationId String

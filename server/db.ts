@@ -54,7 +54,7 @@ class DatabaseStore {
       this.closures = data.closures;
       this.evidences = data.evidences;
       this.recomputeAnalytics();
-      void this.persistOperationalData(data);
+      void this.persistOperationalData({ ...data, findings: this.findings });
     } catch (error) {
       console.warn('Operational snapshot unavailable; using generated scenario:', error);
     }
@@ -72,7 +72,7 @@ class DatabaseStore {
     this.evidences = data.evidences;
 
     this.recomputeAnalytics();
-    void this.persistOperationalData(data);
+    void this.persistOperationalData({ ...data, findings: this.findings });
 
     void prisma.scenarioSnapshot.upsert({
       where: { scenarioId },
@@ -202,6 +202,8 @@ class DatabaseStore {
       }
     });
 
+    void this.persistFindingReview(finding);
+
     return finding;
   }
 
@@ -227,6 +229,7 @@ class DatabaseStore {
     cases: Case[];
     investigations: Investigation[];
     evidences: EvidenceRecord[];
+    findings: SupervisoryFinding[];
   }): Promise<void> {
     try {
       const organization = await prisma.organization.findFirst({ select: { id: true } });
@@ -268,9 +271,48 @@ class DatabaseStore {
             create: { id: evidence.id, organizationId: organization.id, caseId: evidence.caseId, evidenceType: evidence.type, verified: evidence.verified, payload: evidence as any, collectedAt: new Date(evidence.collectedAt) }
           });
         }
+        for (const finding of data.findings) {
+          await transaction.findingRecord.upsert({
+            where: { id: finding.id },
+            update: {
+              caseId: finding.caseId,
+              entityId: finding.entityId,
+              severity: finding.severity,
+              reviewStatus: finding.reviewStatus,
+              payload: finding as any,
+              reviewDecision: finding.reviewDecision as any
+            },
+            create: {
+              id: finding.id,
+              organizationId: organization.id,
+              caseId: finding.caseId,
+              entityId: finding.entityId,
+              severity: finding.severity,
+              reviewStatus: finding.reviewStatus,
+              payload: finding as any,
+              reviewDecision: finding.reviewDecision as any,
+              createdAt: new Date(finding.createdAt)
+            }
+          });
+        }
       });
     } catch (error) {
       console.warn('Normalized operational persistence unavailable:', error);
+    }
+  }
+
+  private async persistFindingReview(finding: SupervisoryFinding): Promise<void> {
+    try {
+      await prisma.findingRecord.update({
+        where: { id: finding.id },
+        data: {
+          reviewStatus: finding.reviewStatus,
+          reviewDecision: finding.reviewDecision as any,
+          payload: finding as any
+        }
+      });
+    } catch (error) {
+      console.warn('Finding review persistence unavailable:', error);
     }
   }
 
