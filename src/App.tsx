@@ -67,9 +67,12 @@ export const AppContent: React.FC = () => {
       setLoginPassword('');
     };
 
+    // Run whenever the access screen returns (including after logout), not
+    // only when the application first loads.
+    clearAutofill();
     const timer = window.setTimeout(clearAutofill, 250);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [user]);
 
   const handleLogin = async (e?: React.FormEvent | React.MouseEvent) => {
     e?.preventDefault();
@@ -228,7 +231,7 @@ export const AppContent: React.FC = () => {
               <input
                 ref={emailInputRef}
                 type="text"
-                autoComplete="nope"
+                autoComplete="off"
                 name={loginFieldNames.email}
                 readOnly={!loginFieldsEnabled}
                 onFocus={() => setLoginFieldsEnabled(true)}
@@ -249,7 +252,7 @@ export const AppContent: React.FC = () => {
               <input
                 ref={passwordInputRef}
                 type="text"
-                autoComplete="nope"
+                autoComplete="off"
                 name={loginFieldNames.password}
                 readOnly={!loginFieldsEnabled}
                 onFocus={() => setLoginFieldsEnabled(true)}

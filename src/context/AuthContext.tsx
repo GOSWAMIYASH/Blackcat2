@@ -48,8 +48,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await api.logout();
-    setUser(null);
+    try {
+      await api.logout();
+    } finally {
+      // Always return to the access screen locally, even if the network call
+      // fails after the client credentials have been cleared.
+      setUser(null);
+    }
   };
 
   const switchUser = async (role: UserRole, password?: string) => {

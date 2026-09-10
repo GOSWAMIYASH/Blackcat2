@@ -58,6 +58,12 @@ class ApiService {
       throw new Error(errMessage);
     }
 
+    // Logout and other successful mutation endpoints can intentionally return
+    // 204 No Content. Do not try to parse an empty response as JSON.
+    if (res.status === 204) {
+      return undefined as T;
+    }
+
     return res.json() as Promise<T>;
   }
 
