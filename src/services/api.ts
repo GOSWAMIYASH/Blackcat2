@@ -11,6 +11,7 @@ import {
 
 class ApiService {
   private token: string | null = localStorage.getItem('satsa_auth_token');
+  private refreshPromise: Promise<boolean> | null = null;
 
   public setToken(token: string | null) {
     this.token = token;
@@ -37,8 +38,14 @@ class ApiService {
 
     const res = await fetch(`/api${endpoint}`, {
       ...options,
+      credentials: 'include',
       headers
     });
+
+    if (res.status === 401 && endpoint !== '/auth/refresh' && endpoint !== '/auth/login') {
+      const refreshed = await this.refreshAccessToken();
+      if (refreshed) return this.request<T>(endpoint, options);
+    }
 
     if (!res.ok) {
       let errMessage = `API error (${res.status}): ${res.statusText}`;
@@ -54,6 +61,32 @@ class ApiService {
     return res.json() as Promise<T>;
   }
 
+  private async refreshAccessToken(): Promise<boolean> {
+    if (!this.refreshPromise) {
+      this.refreshPromise = fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'include'
+      })
+        .then(async response => {
+          if (!response.ok) {
+            this.setToken(null);
+            return false;
+          }
+          const data = await response.json() as { token: string };
+          this.setToken(data.token);
+          return true;
+        })
+        .catch(() => {
+          this.setToken(null);
+          return false;
+        })
+        .finally(() => {
+          this.refreshPromise = null;
+        });
+    }
+    return this.refreshPromise;
+  }
+
   // Auth
   public async login(email: string, password: string) {
     const data = await this.request<{ token: string; user: any }>('/auth/login', {
@@ -62,6 +95,14 @@ class ApiService {
     });
     this.setToken(data.token);
     return data;
+  }
+
+  public async logout(): Promise<void> {
+    try {
+      await this.request<void>('/auth/logout', { method: 'POST' });
+    } finally {
+      this.setToken(null);
+    }
   }
 
   public async getMe() {

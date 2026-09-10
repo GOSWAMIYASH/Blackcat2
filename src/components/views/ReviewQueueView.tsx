@@ -7,9 +7,10 @@ import { CheckSquare, Clock, CheckCircle2, XCircle, RotateCcw, ArrowRight, UserC
 interface Props {
   findings: SupervisoryFinding[];
   onSelectFinding: (finding: SupervisoryFinding) => void;
+  canReviewFindings: boolean;
 }
 
-export const ReviewQueueView: React.FC<Props> = ({ findings, onSelectFinding }) => {
+export const ReviewQueueView: React.FC<Props> = ({ findings, onSelectFinding, canReviewFindings }) => {
   const [activeTab, setActiveTab] = useState<ReviewStatus>('PENDING');
 
   const filtered = findings.filter(f => f.reviewStatus === activeTab);
@@ -151,7 +152,7 @@ export const ReviewQueueView: React.FC<Props> = ({ findings, onSelectFinding }) 
                 }}
                 className="mt-3 flex items-center gap-1 text-xs font-semibold text-red-400 hover:text-red-300 transition"
               >
-                <span>{activeTab === 'PENDING' ? 'Perform Review' : 'Edit Decision'}</span>
+                <span>{canReviewFindings ? (activeTab === 'PENDING' ? 'Perform Review' : 'Edit Decision') : 'View Finding'}</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>

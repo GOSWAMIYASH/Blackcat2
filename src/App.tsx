@@ -26,6 +26,7 @@ import {
 
 export const AppContent: React.FC = () => {
   const { user, loading: authLoading, login } = useAuth();
+  const canReviewFindings = user?.role === 'Lead Examiner';
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [activeScenarioId, setActiveScenarioId] = useState<string>('scenario-2');
   const [scenarios, setScenarios] = useState<ScenarioDefinition[]>([]);
@@ -135,6 +136,12 @@ export const AppContent: React.FC = () => {
       refreshData();
     }
   }, [user, refreshData]);
+
+  useEffect(() => {
+    if (!canReviewFindings && activeTab === 'review-queue') {
+      setActiveTab('findings');
+    }
+  }, [activeTab, canReviewFindings]);
 
   // Scenario switch
   const handleSelectScenario = async (scenarioId: string) => {
@@ -307,6 +314,7 @@ export const AppContent: React.FC = () => {
           onSelectTab={setActiveTab}
           pendingReviewCount={kpi?.pendingReviewCount || 0}
           totalFindingsCount={kpi?.totalFindings || 0}
+          canReviewFindings={canReviewFindings}
         />
 
         {/* Main Content Area */}
@@ -351,6 +359,7 @@ export const AppContent: React.FC = () => {
             <ReviewQueueView
               findings={findings}
               onSelectFinding={setSelectedFinding}
+              canReviewFindings={canReviewFindings}
             />
           )}
 
@@ -377,6 +386,7 @@ export const AppContent: React.FC = () => {
           finding={selectedFinding}
           onClose={() => setSelectedFinding(null)}
           onReviewSubmit={handleReviewSubmit}
+          canReview={canReviewFindings}
         />
       )}
 

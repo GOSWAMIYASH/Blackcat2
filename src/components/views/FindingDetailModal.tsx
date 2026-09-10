@@ -33,11 +33,11 @@ interface Props {
     notes: string,
     followUp?: string
   ) => Promise<void>;
+  canReview: boolean;
 }
 
-export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReviewSubmit }) => {
+export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReviewSubmit, canReview }) => {
   const { user } = useAuth();
-  const canReview = canAccess(user?.role, 'review_decision');
   const canClarify = canAccess(user?.role, 'submit_clarification');
   const canExportReport = canAccess(user?.role, 'generate_report') || canAccess(user?.role, 'view_reports_readonly');
   const initialDecision: ReviewStatus =
@@ -425,8 +425,8 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
           <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
-                  10. Human Examiner Review Decision
+                  <span className="text-xs font-bold text-zinc-100 uppercase tracking-wider">
+                  {canReview ? '10. Human Examiner Review Decision' : '10. Review Decision (Read-only)'}
                 </span>
                 <p className="text-[11px] text-zinc-400 mt-0.5">
                   Distinguishes analytics signal from human examiner verdict. Logged to tamper-evident audit trail.
@@ -541,7 +541,7 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
             )}
 
             {/* Notes Input */}
-            <div className="space-y-2">
+            <div className={`space-y-2 ${canReview ? '' : 'hidden'}`}>
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider block">
                   Examiner Review Notes & Rationale:
@@ -573,7 +573,7 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
             </div>
 
             {/* Follow-up recommendation */}
-            <div className="space-y-2">
+            <div className={`space-y-2 ${canReview ? '' : 'hidden'}`}>
               <label className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider block">
                 Recommended Follow-up Action / Directive:
               </label>
@@ -599,14 +599,16 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
               )}
 
               <div className="flex items-center gap-2.5">
-                {canExportReport && <button
+                {canExportReport && (
+                  <button
                   type="button"
                   onClick={handleExportJSON}
                   className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-950 text-xs font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition shadow-sm"
                 >
                   <Download className="w-3.5 h-3.5 text-zinc-400" />
                   <span>Export JSON Report</span>
-                </button>}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={onClose}
@@ -614,14 +616,16 @@ export const FindingDetailModal: React.FC<Props> = ({ finding, onClose, onReview
                 >
                   Close
                 </button>
-                <button
+                {canReview && (
+                  <button
                   type="button"
                   disabled={isSubmitting || !canReview}
                   onClick={handleSubmit}
                   className="px-5 py-2 rounded-lg bg-red-800 hover:bg-red-700 text-white font-semibold text-xs transition shadow-md disabled:opacity-50"
                 >
-                  {isSubmitting ? 'Recording...' : canReview ? 'Commit Examiner Decision' : 'Read Only'}
-                </button>
+                  {isSubmitting ? 'Recording...' : 'Commit Examiner Decision'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
