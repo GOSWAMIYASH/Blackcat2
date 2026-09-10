@@ -174,9 +174,12 @@ apiRouter.post('/auth/logout', async (req: Request, res: Response) => {
 });
 
 apiRouter.get('/auth/me', async (req: Request, res: Response) => {
-  const authUser = requireAuth(req, res);
+  const authUser = getAuthUser(req);
   if (!authUser) {
-    return res.status(401).json({ error: 'Authentication is required' });
+    return res.json({
+      authenticated: false,
+      user: null
+    });
   }
 
   const user = await prisma.user.findUnique({ where: { id: authUser.userId }, include: { organization: true } });
