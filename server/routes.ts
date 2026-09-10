@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { db } from './db';
-import { verifyPassword, signToken, verifyToken, PRESET_USERS } from './auth';
+import { verifyPassword, signToken, verifyToken, PRESET_USERS, createRefreshSession, getRefreshTokenFromRequest, setRefreshCookie, clearRefreshCookie, rotateRefreshSession, revokeRefreshSession, roleLabel } from './auth';
+import { prisma } from './prisma';
+import argon2 from 'argon2';
 import { validateAndNormalizeSOCData } from './engine/normalizer';
 import { generateAssessmentDossier } from './engine/reporting';
 import { SCENARIO_DEFINITIONS } from './engine/scenarios';
@@ -18,14 +20,38 @@ function getAuthUser(req: Request) {
 // ----------------------------------------------------
 // AUTHENTICATION & USERS
 // ----------------------------------------------------
-apiRouter.post('/auth/login', (req: Request, res: Response) => {
+type AuthUser = ReturnType<typeof verifyToken>;
+
+function requireAuth(req: Request, res: Response): AuthUser | null {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    res.status(401).json({ error: 'Authentication is required' });
+    return null;
+  }
+  return authUser;
+}
+
+function requireRole(req: Request, res: Response, roles: string[]): AuthUser | null {
+  const authUser = requireAuth(req, res);
+  if (!authUser) return null;
+  if (!roles.includes(authUser.role)) {
+    res.status(403).json({ error: `Operation not permitted for role ${authUser.role}` });
+    return null;
+  }
+  return authUser;
+}
+
+apiRouter.post('/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
-  const user = db.users.find(u => u.email.toLowerCase() === String(email).toLowerCase().trim());
-  if (!user || !verifyPassword(password, user.passwordHash)) {
+  const user = await prisma.user.findUnique({
+    where: { email: String(email).toLowerCase().trim() },
+    include: { organization: true }
+  });
+  if (!user || !user.isActive || !(await argon2.verify(user.passwordHash, password))) {
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
@@ -33,13 +59,15 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     userId: user.id,
     email: user.email,
     name: user.name,
-    role: user.role
+    role: roleLabel(user.role) as any
   });
+  const refreshToken = await createRefreshSession(user.id, req);
+  setRefreshCookie(res, refreshToken);
 
   db.addAuditLog({
     actorEmail: user.email,
     actorName: user.name,
-    actorRole: user.role,
+    actorRole: roleLabel(user.role) as any,
     action: 'LOGIN',
     targetType: 'AUTH',
     targetId: user.id,
@@ -53,51 +81,67 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
       email: user.email,
       name: user.name,
       role: user.role,
-      organization: user.organization
+    organization: user.organization.name
     }
   });
 });
 
-apiRouter.get('/auth/me', (req: Request, res: Response) => {
-  const authUser = getAuthUser(req);
+apiRouter.post('/auth/refresh', async (req: Request, res: Response) => {
+  const refreshToken = getRefreshTokenFromRequest(req);
+  if (!refreshToken) return res.status(401).json({ error: 'Refresh session is required' });
+  const rotated = await rotateRefreshSession(refreshToken, req);
+  if (!rotated) {
+    clearRefreshCookie(res);
+    return res.status(401).json({ error: 'Refresh session is no longer valid' });
+  }
+  setRefreshCookie(res, rotated.refreshToken);
+  res.json({ token: rotated.accessToken, user: rotated.user });
+});
+
+apiRouter.post('/auth/logout', async (req: Request, res: Response) => {
+  const refreshToken = getRefreshTokenFromRequest(req);
+  if (refreshToken) await revokeRefreshSession(refreshToken);
+  clearRefreshCookie(res);
+  res.status(204).send();
+});
+
+apiRouter.get('/auth/me', async (req: Request, res: Response) => {
+  const authUser = requireAuth(req, res);
   if (!authUser) {
-    // Provide default fallback user if not authenticated for seamless demo inspection
-    const defaultUser = PRESET_USERS[0];
-    return res.json({
-      authenticated: false,
-      user: {
-        id: defaultUser.id,
-        email: defaultUser.email,
-        name: defaultUser.name,
-        role: defaultUser.role,
-        organization: defaultUser.organization
-      }
-    });
+    return res.status(401).json({ error: 'Authentication is required' });
   }
 
-  const user = db.users.find(u => u.id === authUser.userId) || PRESET_USERS[0];
+  const user = await prisma.user.findUnique({ where: { id: authUser.userId }, include: { organization: true } });
+  if (!user || !user.isActive) return res.status(401).json({ error: 'Session is no longer valid' });
   res.json({
     authenticated: true,
     user: {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
-      organization: user.organization
+      role: roleLabel(user.role),
+      organization: user.organization.name
     }
   });
 });
 
-apiRouter.get('/auth/users', (req: Request, res: Response) => {
+apiRouter.get('/auth/users', async (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
+  const users = await prisma.user.findMany({ include: { organization: true } });
   res.json({
-    users: db.users.map(u => ({
+    users: users.map(u => ({
       id: u.id,
       email: u.email,
       name: u.name,
-      role: u.role,
-      organization: u.organization
+      role: roleLabel(u.role),
+      organization: u.organization.name
     }))
   });
+});
+
+// All application data requires an authenticated access token.
+apiRouter.use((req: Request, res: Response, next) => {
+  if (requireAuth(req, res)) next();
 });
 
 // ----------------------------------------------------
@@ -260,7 +304,8 @@ apiRouter.post('/findings/:id/review', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Valid decision (CONFIRMED, REJECTED, NEEDS_EVIDENCE) is required' });
   }
 
-  const authUser = getAuthUser(req);
+  const authUser = requireRole(req, res, ['Lead Examiner']);
+  if (!authUser) return;
   const reviewer = {
     id: authUser?.userId || 'USR-001',
     name: authUser?.name || 'Dr. Arunima Sen',
@@ -303,7 +348,8 @@ apiRouter.post('/scenarios/load', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'scenarioId is required' });
   }
 
-  const authUser = getAuthUser(req);
+  const authUser = requireRole(req, res, ['Lead Examiner']);
+  if (!authUser) return;
   db.loadScenario(scenarioId, authUser?.name || 'Lead Examiner');
 
   res.json({
@@ -323,7 +369,8 @@ apiRouter.post('/upload', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Uploaded content payload is required' });
   }
 
-  const authUser = getAuthUser(req);
+  const authUser = requireRole(req, res, ['SOC Supervisor']);
+  if (!authUser) return;
   const result = validateAndNormalizeSOCData(content, mimeType);
 
   if (!result.success && result.errors.length > 0 && result.normalizedCases.length === 0) {
@@ -346,6 +393,7 @@ apiRouter.post('/upload', (req: Request, res: Response) => {
 // AUDIT LOGS
 // ----------------------------------------------------
 apiRouter.get('/audit/logs', (req: Request, res: Response) => {
+  if (!requireAuth(req, res)) return;
   const limit = parseInt(req.query.limit as string) || 100;
   res.json({
     total: db.auditEvents.length,

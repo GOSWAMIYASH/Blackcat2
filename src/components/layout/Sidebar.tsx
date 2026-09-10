@@ -26,13 +26,15 @@ interface Props {
   onSelectTab: (tab: NavTab) => void;
   pendingReviewCount: number;
   totalFindingsCount: number;
+  canReviewFindings: boolean;
 }
 
 export const Sidebar: React.FC<Props> = ({
   activeTab,
   onSelectTab,
   pendingReviewCount,
-  totalFindingsCount
+  totalFindingsCount,
+  canReviewFindings
 }) => {
   const navItems = [
     { id: 'dashboard' as NavTab, label: 'Supervisory Dashboard', icon: LayoutDashboard },
@@ -52,7 +54,7 @@ export const Sidebar: React.FC<Props> = ({
           Supervisory Navigation
         </div>
 
-        {navItems.map(item => {
+        {navItems.filter(item => item.id !== 'review-queue' || canReviewFindings).map(item => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
           return (
