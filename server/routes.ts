@@ -581,7 +581,7 @@ apiRouter.post('/upload', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // AUDIT LOGS
 // ----------------------------------------------------
-apiRouter.get('/audit/logs', (req: Request, res: Response) => {
+apiRouter.get('/audit/logs', async (req: Request, res: Response) => {
   const authUser = requireAuth(req, res);
   if (!authUser) return;
   if (!canUserAccess(authUser.role, 'access_audit_logs')) {
@@ -589,16 +589,45 @@ apiRouter.get('/audit/logs', (req: Request, res: Response) => {
   }
 
   const limit = parseInt(req.query.limit as string) || 100;
-  let events = [...db.auditEvents];
+  try {
+    const actor = await prisma.user.findUnique({
+      where: { id: authUser.userId },
+      select: { organizationId: true }
+    });
+    if (!actor) return res.status(401).json({ error: 'Session organization is no longer valid.' });
 
-  if (authUser.role === 'SOC Supervisor') {
-    events = events.filter(event => event.actorEmail === authUser.email);
+    const logs = await prisma.auditLog.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        ...(authUser.role === 'SOC Supervisor' ? { actorId: authUser.userId } : {})
+      },
+      include: { actor: { select: { email: true, name: true, role: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: limit
+    });
+
+    return res.json({
+      total: logs.length,
+      events: logs.map(log => ({
+        id: log.id,
+        actorEmail: log.actor?.email || 'system@satsa.internal',
+        actorName: log.actor?.name || 'SAT-SA Platform',
+        actorRole: log.actor ? roleLabel(log.actor.role) : 'Lead Examiner',
+        action: log.action,
+        targetType: log.targetType,
+        targetId: log.targetId || '',
+        timestamp: log.createdAt.toISOString(),
+        metadata: (log.metadata || {}) as Record<string, any>
+      }))
+    });
+  } catch (error) {
+    console.warn('Audit database read unavailable; using memory fallback:', error);
+    let events = [...db.auditEvents];
+    if (authUser.role === 'SOC Supervisor') {
+      events = events.filter(event => event.actorEmail === authUser.email);
+    }
+    return res.json({ total: events.length, events: events.slice(0, limit) });
   }
-
-  res.json({
-    total: events.length,
-    events: events.slice(0, limit)
-  });
 });
 
 // ----------------------------------------------------

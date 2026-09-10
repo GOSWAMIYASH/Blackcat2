@@ -14,6 +14,7 @@ import {
   NegativeSpaceRow
 } from './types';
 import { PRESET_USERS } from './auth';
+import { prisma } from './prisma';
 import { generateScenarioData, SCENARIO_DEFINITIONS } from './engine/scenarios';
 import { runExecutionGapRules } from './engine/executionGap';
 import { buildNegativeSpaceMatrix } from './engine/negativeSpace';
@@ -183,7 +184,36 @@ class DatabaseStore {
     if (this.auditEvents.length > 2000) {
       this.auditEvents.pop();
     }
+
+    void this.persistAuditLog(log);
     return log;
+  }
+
+  private async persistAuditLog(log: AuditEvent): Promise<void> {
+    try {
+      const actor = await prisma.user.findUnique({
+        where: { email: log.actorEmail },
+        select: { id: true, organizationId: true }
+      });
+      const organization = actor
+        ? { id: actor.organizationId }
+        : await prisma.organization.findFirst({ select: { id: true } });
+      if (!organization) return;
+
+      await prisma.auditLog.create({
+        data: {
+          organizationId: organization.id,
+          actorId: actor?.id,
+          action: log.action,
+          targetType: log.targetType,
+          targetId: log.targetId,
+          metadata: log.metadata,
+          createdAt: new Date(log.timestamp)
+        }
+      });
+    } catch (error) {
+      console.warn('Audit persistence unavailable; retained in memory:', error);
+    }
   }
 
   public ingestCustomDataset(cases: Partial<Case>[], alerts: Partial<Alert>[], actorEmail: string): void {
