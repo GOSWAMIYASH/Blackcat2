@@ -320,7 +320,7 @@ export const DashboardView: React.FC<Props> = ({
                 <Bar
                   dataKey="count"
                   radius={[4, 4, 0, 0]}
-                  onClick={(entry) => onNavigateToSeverity(entry.severity.toUpperCase())}
+                  onClick={(entry) => onNavigateToSeverity(entry.payload.severity.toUpperCase())}
                   className="cursor-pointer hover:opacity-85 transition"
                 />
               </BarChart>
@@ -361,7 +361,7 @@ export const DashboardView: React.FC<Props> = ({
                   dataKey="count"
                   fill="#f43f5e"
                   radius={[0, 4, 4, 0]}
-                  onClick={(entry) => onNavigateToCategory(entry.category)}
+                  onClick={(entry) => onNavigateToCategory(entry.payload.category)}
                   className="cursor-pointer hover:opacity-85 transition"
                 />
               </BarChart>
@@ -605,7 +605,7 @@ export const DashboardView: React.FC<Props> = ({
                   name="Priority Risk Score (0-100)"
                   fill="#ea580c"
                   radius={[0, 4, 4, 0]}
-                  onClick={(entry) => onNavigateToEntity(entry.entityId)}
+                  onClick={(entry) => onNavigateToEntity(entry.payload.entityId)}
                   className="cursor-pointer hover:opacity-85 transition"
                 />
               </BarChart>
