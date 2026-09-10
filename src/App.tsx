@@ -13,6 +13,7 @@ import { AuditLogsView } from './components/views/AuditLogsView';
 import { FindingDetailModal } from './components/views/FindingDetailModal';
 import { DataIngestionModal } from './components/modals/DataIngestionModal';
 import { api } from './services/api';
+import { ShieldCheck } from 'lucide-react';
 import {
   KPISummary,
   SupervisoryFinding,
@@ -25,7 +26,7 @@ import {
 } from './types';
 
 export const AppContent: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading, login } = useAuth();
   const canReviewFindings = user?.role === 'Lead Examiner';
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
   const [activeScenarioId, setActiveScenarioId] = useState<string>('scenario-2');
@@ -51,6 +52,11 @@ export const AppContent: React.FC = () => {
 
   // Load all central state from API
   const refreshData = useCallback(async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const [
         kpiRes,
@@ -92,7 +98,7 @@ export const AppContent: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     refreshData();
@@ -160,7 +166,7 @@ export const AppContent: React.FC = () => {
     }
   };
 
-  if (loading && !kpi) {
+  if (authLoading || (user && loading && !kpi)) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-zinc-950 text-zinc-300 font-mono text-xs">
         <div className="flex flex-col items-center gap-3">
@@ -169,6 +175,10 @@ export const AppContent: React.FC = () => {
         </div>
       </div>
     );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={login} />;
   }
 
   return (
@@ -273,6 +283,51 @@ export const AppContent: React.FC = () => {
         }}
       />
     </div>
+  );
+};
+
+const LoginScreen: React.FC<{ onLogin: (email: string, password: string) => Promise<void> }> = ({ onLogin }) => {
+  const [email, setEmail] = useState('examiner@satsa.gov.in');
+  const [password, setPassword] = useState('examiner123');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await onLogin(email, password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to sign in.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-zinc-950 p-6 text-zinc-100">
+      <form onSubmit={submit} className="w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <ShieldCheck className="h-9 w-9 text-red-400" />
+          <div>
+            <h1 className="font-semibold">SAT-SA</h1>
+            <p className="text-xs text-zinc-400">Supervisory Analytics Tool for SOC Assessment</p>
+          </div>
+        </div>
+        <label className="mb-4 block text-sm">Email
+          <input value={email} onChange={event => setEmail(event.target.value)} type="email" required className="mt-1.5 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-red-500" />
+        </label>
+        <label className="mb-4 block text-sm">Password
+          <input value={password} onChange={event => setPassword(event.target.value)} type="password" required className="mt-1.5 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-red-500" />
+        </label>
+        {error && <p className="mb-4 rounded-md border border-red-900 bg-red-950/50 p-2 text-xs text-red-200">{error}</p>}
+        <button disabled={submitting} className="w-full rounded-md bg-red-700 px-3 py-2 text-sm font-medium hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60">
+          {submitting ? 'Signing in…' : 'Sign in'}
+        </button>
+        <p className="mt-4 text-xs text-zinc-500">Demo accounts: examiner@satsa.gov.in, supervisor@soc.internal, auditor@cert.gov.in</p>
+      </form>
+    </main>
   );
 };
 

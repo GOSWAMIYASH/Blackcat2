@@ -113,7 +113,12 @@ export async function revokeRefreshSession(token: string): Promise<void> {
 }
 
 export function roleLabel(role: string): UserRole {
-  return role.split('_').map(word => word[0] + word.slice(1).toLowerCase()).join(' ') as UserRole;
+  const labels: Record<string, UserRole> = {
+    LEAD_EXAMINER: 'Lead Examiner',
+    SOC_SUPERVISOR: 'SOC Supervisor',
+    AUDITOR: 'Auditor'
+  };
+  return labels[role] ?? role as UserRole;
 }
 
 export function verifyToken(token: string): JWTPayload | null {

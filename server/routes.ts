@@ -80,8 +80,8 @@ apiRouter.post('/auth/login', async (req: Request, res: Response) => {
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
-    organization: user.organization.name
+      role: roleLabel(user.role),
+      organization: user.organization.name
     }
   });
 });
@@ -107,9 +107,7 @@ apiRouter.post('/auth/logout', async (req: Request, res: Response) => {
 
 apiRouter.get('/auth/me', async (req: Request, res: Response) => {
   const authUser = requireAuth(req, res);
-  if (!authUser) {
-    return res.status(401).json({ error: 'Authentication is required' });
-  }
+  if (!authUser) return;
 
   const user = await prisma.user.findUnique({ where: { id: authUser.userId }, include: { organization: true } });
   if (!user || !user.isActive) return res.status(401).json({ error: 'Session is no longer valid' });
