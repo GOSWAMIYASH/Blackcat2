@@ -34,6 +34,12 @@ enum OperationalInvestigationStatus {
   SUSPENDED
 }
 
+enum ClarificationStatus {
+  OPEN
+  RESPONDED
+  RESOLVED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -46,6 +52,7 @@ model Organization {
   entities  OperationalEntity[]
   alerts    OperationalAlert[]
   cases     OperationalCase[]
+  clarifications Clarification[]
 }
 
 model OperationalEntity {
@@ -155,6 +162,26 @@ model FindingRecord {
   @@index([organizationId, reviewStatus])
   @@index([caseId])
   @@index([entityId, severity])
+}
+
+model Clarification {
+  id             String             @id @default(cuid())
+  organizationId String
+  findingId      String
+  caseId         String
+  submittedById  String
+  message        String
+  status         ClarificationStatus @default(OPEN)
+  response       String?
+  respondedById  String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, status, createdAt])
+  @@index([findingId])
+  @@index([caseId])
 }
 
 model User {

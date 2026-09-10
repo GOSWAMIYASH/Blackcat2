@@ -482,10 +482,11 @@ apiRouter.post('/findings/:id/review', (req: Request, res: Response) => {
   });
 });
 
-apiRouter.post('/findings/:id/clarification', (req: Request, res: Response) => {
+apiRouter.post('/findings/:id/clarification', async (req: Request, res: Response) => {
   if (!requirePermission(req, res, 'submit_clarification')) return;
 
   const authUser = getAuthUser(req);
+  if (!authUser) return;
   const finding = getRoleScopedFindings(authUser).find(item => item.id === req.params.id);
   if (!finding) {
     return res.status(404).json({ error: `Finding ${req.params.id} not found in your assigned scope` });
@@ -495,6 +496,22 @@ apiRouter.post('/findings/:id/clarification', (req: Request, res: Response) => {
   if (!message) {
     return res.status(400).json({ error: 'Clarification message is required' });
   }
+
+  const actor = await prisma.user.findUnique({
+    where: { id: authUser.userId },
+    select: { organizationId: true }
+  });
+  if (!actor) return res.status(401).json({ error: 'Session organization is no longer valid.' });
+
+  const clarification = await prisma.clarification.create({
+    data: {
+      organizationId: actor.organizationId,
+      findingId: finding.id,
+      caseId: finding.caseId,
+      submittedById: authUser.userId,
+      message
+    }
+  });
 
   db.addAuditLog({
     actorEmail: authUser!.email,
@@ -506,7 +523,36 @@ apiRouter.post('/findings/:id/clarification', (req: Request, res: Response) => {
     metadata: { caseNumber: finding.caseNumber, message }
   });
 
-  res.json({ success: true, message: 'Clarification submitted to the examiner.' });
+  res.json({ success: true, clarificationId: clarification.id, status: clarification.status, message: 'Clarification submitted to the examiner.' });
+});
+
+apiRouter.patch('/clarifications/:id', async (req: Request, res: Response) => {
+  if (!requirePermission(req, res, 'review_decision')) return;
+
+  const authUser = getAuthUser(req);
+  if (!authUser) return;
+  const status = String(req.body?.status || '').toUpperCase();
+  if (!['RESPONDED', 'RESOLVED'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be RESPONDED or RESOLVED' });
+  }
+
+  const actor = await prisma.user.findUnique({
+    where: { id: authUser.userId },
+    select: { organizationId: true }
+  });
+  if (!actor) return res.status(401).json({ error: 'Session organization is no longer valid.' });
+
+  const clarification = await prisma.clarification.updateMany({
+    where: { id: req.params.id, organizationId: actor.organizationId },
+    data: {
+      status: status as 'RESPONDED' | 'RESOLVED',
+      response: String(req.body?.response || '').trim() || null,
+      respondedById: authUser.userId
+    }
+  });
+  if (clarification.count === 0) return res.status(404).json({ error: 'Clarification not found' });
+
+  res.json({ success: true, status, message: `Clarification marked ${status.toLowerCase()}.` });
 });
 
 // ----------------------------------------------------
