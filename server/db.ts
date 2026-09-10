@@ -54,6 +54,7 @@ class DatabaseStore {
       this.closures = data.closures;
       this.evidences = data.evidences;
       this.recomputeAnalytics();
+      void this.persistOperationalData(data);
     } catch (error) {
       console.warn('Operational snapshot unavailable; using generated scenario:', error);
     }
@@ -71,6 +72,7 @@ class DatabaseStore {
     this.evidences = data.evidences;
 
     this.recomputeAnalytics();
+    void this.persistOperationalData(data);
 
     void prisma.scenarioSnapshot.upsert({
       where: { scenarioId },
@@ -217,6 +219,59 @@ class DatabaseStore {
 
     void this.persistAuditLog(log);
     return log;
+  }
+
+  private async persistOperationalData(data: {
+    entities: Entity[];
+    alerts: Alert[];
+    cases: Case[];
+    investigations: Investigation[];
+    evidences: EvidenceRecord[];
+  }): Promise<void> {
+    try {
+      const organization = await prisma.organization.findFirst({ select: { id: true } });
+      if (!organization) return;
+
+      await prisma.$transaction(async transaction => {
+        for (const entity of data.entities) {
+          await transaction.operationalEntity.upsert({
+            where: { id: entity.id },
+            update: { name: entity.name, code: entity.code, criticality: entity.criticality, sector: entity.sector, payload: entity as any },
+            create: { id: entity.id, organizationId: organization.id, name: entity.name, code: entity.code, criticality: entity.criticality, sector: entity.sector, payload: entity as any }
+          });
+        }
+        for (const alert of data.alerts) {
+          await transaction.operationalAlert.upsert({
+            where: { id: alert.id },
+            update: { entityId: alert.entityId, title: alert.title, severity: alert.severity, status: alert.status, payload: alert as any },
+            create: { id: alert.id, organizationId: organization.id, entityId: alert.entityId, title: alert.title, severity: alert.severity, status: alert.status, payload: alert as any, createdAt: new Date(alert.normalizedTimestamp || alert.rawTimestamp) }
+          });
+        }
+        for (const caseItem of data.cases) {
+          await transaction.operationalCase.upsert({
+            where: { id: caseItem.id },
+            update: { entityId: caseItem.entityId, alertId: caseItem.alertId, caseNumber: caseItem.caseNumber, title: caseItem.title, severity: caseItem.severity, status: caseItem.status, assignedAnalyst: caseItem.assignedAnalyst, payload: caseItem as any },
+            create: { id: caseItem.id, organizationId: organization.id, entityId: caseItem.entityId, alertId: caseItem.alertId, caseNumber: caseItem.caseNumber, title: caseItem.title, severity: caseItem.severity, status: caseItem.status, assignedAnalyst: caseItem.assignedAnalyst, payload: caseItem as any, createdAt: new Date(caseItem.createdAt) }
+          });
+        }
+        for (const investigation of data.investigations) {
+          await transaction.operationalInvestigation.upsert({
+            where: { id: investigation.id },
+            update: { caseId: investigation.caseId, status: investigation.status, analystId: investigation.analystId, payload: investigation as any, startedAt: new Date(investigation.startedAt), completedAt: investigation.completedAt ? new Date(investigation.completedAt) : null },
+            create: { id: investigation.id, organizationId: organization.id, caseId: investigation.caseId, status: investigation.status, analystId: investigation.analystId, payload: investigation as any, startedAt: new Date(investigation.startedAt), completedAt: investigation.completedAt ? new Date(investigation.completedAt) : null }
+          });
+        }
+        for (const evidence of data.evidences) {
+          await transaction.operationalEvidence.upsert({
+            where: { id: evidence.id },
+            update: { caseId: evidence.caseId, evidenceType: evidence.type, verified: evidence.verified, payload: evidence as any, collectedAt: new Date(evidence.collectedAt) },
+            create: { id: evidence.id, organizationId: organization.id, caseId: evidence.caseId, evidenceType: evidence.type, verified: evidence.verified, payload: evidence as any, collectedAt: new Date(evidence.collectedAt) }
+          });
+        }
+      });
+    } catch (error) {
+      console.warn('Normalized operational persistence unavailable:', error);
+    }
   }
 
   private async persistAuditLog(log: AuditEvent): Promise<void> {
