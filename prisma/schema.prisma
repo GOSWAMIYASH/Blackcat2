@@ -13,6 +13,27 @@ enum UserRole {
   AUDITOR
 }
 
+enum OperationalSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum OperationalCaseStatus {
+  OPEN
+  IN_INVESTIGATION
+  ESCALATED
+  CLOSED
+  REOPENED
+}
+
+enum OperationalInvestigationStatus {
+  IN_PROGRESS
+  COMPLETED
+  SUSPENDED
+}
+
 model Organization {
   id        String   @id @default(cuid())
   name      String
@@ -22,6 +43,101 @@ model Organization {
 
   users     User[]
   auditLogs AuditLog[]
+  entities  OperationalEntity[]
+  alerts    OperationalAlert[]
+  cases     OperationalCase[]
+}
+
+model OperationalEntity {
+  id             String   @id
+  organizationId String
+  name           String
+  code           String
+  criticality    OperationalSeverity
+  sector         String
+  payload        Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  alerts       OperationalAlert[]
+  cases        OperationalCase[]
+
+  @@index([organizationId, criticality])
+}
+
+model OperationalAlert {
+  id             String   @id
+  organizationId String
+  entityId       String
+  title          String
+  severity       OperationalSeverity
+  status         String
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  entity       OperationalEntity @relation(fields: [entityId], references: [id], onDelete: Restrict)
+  cases        OperationalCase[]
+
+  @@index([organizationId, severity, createdAt])
+  @@index([entityId])
+}
+
+model OperationalCase {
+  id             String                 @id
+  organizationId String
+  entityId       String
+  alertId        String
+  caseNumber     String
+  title          String
+  severity       OperationalSeverity
+  status         OperationalCaseStatus
+  assignedAnalyst String?
+  payload        Json?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  entity       OperationalEntity        @relation(fields: [entityId], references: [id], onDelete: Restrict)
+  alert        OperationalAlert         @relation(fields: [alertId], references: [id], onDelete: Restrict)
+  investigations OperationalInvestigation[]
+  evidence       OperationalEvidence[]
+
+  @@unique([organizationId, caseNumber])
+  @@index([organizationId, status, severity])
+  @@index([assignedAnalyst])
+}
+
+model OperationalInvestigation {
+  id             String                       @id
+  caseId         String
+  organizationId String
+  status         OperationalInvestigationStatus
+  analystId      String?
+  payload        Json?
+  startedAt      DateTime
+  completedAt    DateTime?
+
+  case OperationalCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([caseId])
+}
+
+model OperationalEvidence {
+  id             String   @id
+  caseId         String
+  organizationId String
+  evidenceType   String
+  verified       Boolean  @default(false)
+  payload        Json?
+  collectedAt    DateTime
+
+  case OperationalCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, verified])
+  @@index([caseId])
 }
 
 model User {
